@@ -1,90 +1,60 @@
-const readlineLib = require("readline")
-const reader = readlineLib.createInterface({
+const rl = require("readline")
+const reader = rl.createInterface({
     input: process.stdin,
     output: process.stdout,
     terminal: false,
 })
 
 reader.on("line", function (line) {
-    main(line)
+    processMessage(JSON.parse(line))
 })
 
 const thisNode = {
     nodeId: "",
-    nextMessageid: 0,
+    nextMessageId: 0,
 }
 
-function main(line) {
-    const { msgtype, message } = parseMessage(line)
-    if (msgtype === undefined) {
-        console.log("error: could not determine message type")
+function processMessage(msg) {
+    if (msg.body.type === undefined) {
+        console.error("error: could not determine message type")
         return
     }
-    switch (msgtype) {
+    switch (msg.body.type) {
         case "init":
-            handleInit(message)
+            processInit(msg)
             break
 
         case "echo":
-            handleEcho(message)
+            processEcho(msg)
             break
+
+        default:
+            console.error("unknown message type:", msg.body.type)
     }
 }
 
-function parseMessage(line) {
-    const parsed = JSON.parse(line)
-    return { msgtype: parsed.body.type, message: parsed }
+function processInit(msg) {
+    ensureExists("init", msg.body.node_id, msg.body.msg_id, msg.src)
+    thisNode.nodeId = msg.body.node_id
+    respond(msg, { type: "init_ok", msg_id: thisNode.nextMessageId++ })
 }
 
-function handleInit(message) {
-    let nodeId = message.body.node_id
-    let msgId = message.body.msg_id
-    let src = message.src
-    if (isUndefined(nodeId, msgId, src)) {
-        console.log("error reading init message")
-        return
-    }
-
-    thisNode.nodeId = nodeId
-    let response = {
-        src: nodeId,
-        dest: src,
-        body: {
-            msg_id: thisNode.nextMessageid++,
-            in_reply_to: parseInt(msgId),
-            type: "init_ok",
-        },
-    }
-    console.log(JSON.stringify(response))
+function processEcho(msg) {
+    ensureExists("echo", msg.body.echo, msg.body.msg_id, msg.src)
+    respond(msg, { echo: msg.body.echo, type: "echo_ok", msg_id: thisNode.nextMessageId++ })
 }
 
-function handleEcho(message) {
-    let echoMsg = message.body.echo
-    let msgId = message.body.msg_id
-    let src = message.src
-    if (isUndefined(echoMsg, msgId, src)) {
-        console.log("error reading init message")
-        return
-    }
-
-    let response = {
-        src: thisNode.nodeId,
-        dest: src,
-        body: {
-            echo: echoMsg,
-            msg_id: thisNode.nextMessageid++,
-            in_reply_to: parseInt(msgId),
-            type: "echo_ok",
-        },
-    }
-    console.log(JSON.stringify(response))
-}
-
-function isUndefined() {
-    for (const arg of arguments) {
+function ensureExists(description) {
+    const args = [...arguments]
+    for (const arg of args.slice(1)) {
         if (arg === undefined) {
-            return true
+            console.error(`${description} message: expected fields not found`)
+            process.exit(1)
         }
-        return false
     }
+}
+
+function respond(msg, fields) {
+    let body = { ...fields, in_reply_to: parseInt(msg.body.msg_id) }
+    console.log(JSON.stringify({ src: thisNode.nodeId, dest: msg.src, body: body }))
 }
